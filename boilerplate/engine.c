@@ -1,168 +1,50 @@
+/*
+ * cpu_hog.c - CPU-bound workload for scheduler experiments.
+ *
+ * Usage:
+ *   /cpu_hog [seconds]
+ *
+ * The program burns CPU and prints progress once per second so students
+ * can compare completion times and responsiveness under different
+ * priorities or CPU-affinity settings.
+ *
+ * If you copy this binary into an Alpine rootfs, make sure it is built in a
+ * format that can run there.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <signal.h>
+#include <time.h>
 
-#define FILE_DB "containers.db"
+static unsigned int parse_seconds(const char *arg, unsigned int fallback)
+{
+    char *end = NULL;
+    unsigned long value = strtoul(arg, &end, 10);
 
-typedef struct {
-    char name[50];
-    int pid;
-    int running;
-    int soft, hard;
-} Container;
-
-// save container
-void save(Container c) {
-    FILE *f = fopen(FILE_DB, "a");
-    if (!f) return;
-    fwrite(&c, sizeof(Container), 1, f);
-    fclose(f);
+    if (!arg || *arg == '\0' || (end && *end != '\0') || value == 0)
+        return fallback;
+    return (unsigned int)value;
 }
 
-// load all containers
-int load(Container arr[]) {
-    FILE *f = fopen(FILE_DB, "r");
-    if (!f) return 0;
+int main(int argc, char *argv[])
+{
+    const unsigned int duration = (argc > 1) ? parse_seconds(argv[1], 10) : 10;
+    const time_t start = time(NULL);
+    time_t last_report = start;
+    volatile unsigned long long accumulator = 0;
 
-    int i = 0;
-    while (fread(&arr[i], sizeof(Container), 1, f))
-        i++;
+    while ((unsigned int)(time(NULL) - start) < duration) {
+        accumulator = accumulator * 1664525ULL + 1013904223ULL;
 
-    fclose(f);
-    return i;
-}
-
-// start container
-void start(char *name, char *rootfs, char *cmd, int soft, int hard) {
-
-    pid_t pid = fork();
-
-    if (pid == 0) {
-        chdir(rootfs);  // simulate rootfs
-        execl("/bin/sh", "sh", "-c", cmd, NULL);
-        perror("exec failed");
-        exit(1);
-    }
-
-    Container c;
-    strcpy(c.name, name);
-    c.pid = pid;
-    c.running = 1;
-    c.soft = soft;
-    c.hard = hard;
-
-    save(c);
-
-    printf("Started %s (PID=%d)\n", name, pid);
-}
-
-// list containers
-void ps() {
-    Container arr[100];
-    int n = load(arr);
-
-    printf("\nNAME\tPID\tSTATUS\tSOFT\tHARD\n");
-
-    for (int i = 0; i < n; i++) {
-        printf("%s\t%d\t%s\t%d\t%d\n",
-            arr[i].name,
-            arr[i].pid,
-            arr[i].running ? "RUNNING" : "STOPPED",
-            arr[i].soft,
-            arr[i].hard);
-    }
-}
-
-// logs
-void logs(char *name) {
-    Container arr[100];
-    int n = load(arr);
-
-    for (int i = 0; i < n; i++) {
-        if (strcmp(arr[i].name, name) == 0) {
-            printf("\nLogs for %s:\n", name);
-            printf("PID: %d\n", arr[i].pid);
-            printf("STATUS: %s\n", arr[i].running ? "RUNNING" : "STOPPED");
-            printf("SOFT LIMIT: %d\n", arr[i].soft);
-            printf("HARD LIMIT: %d\n", arr[i].hard);
-            return;
+        if (time(NULL) != last_report) {
+            last_report = time(NULL);
+            printf("cpu_hog alive elapsed=%ld accumulator=%llu\n",
+                   (long)(last_report - start),
+                   accumulator);
+            fflush(stdout);
         }
     }
 
-    printf("Container not found\n");
-}
-
-// stop container
-void stop(char *name) {
-    Container arr[100];
-    int n = load(arr);
-
-    FILE *f = fopen(FILE_DB, "w");
-
-    for (int i = 0; i < n; i++) {
-        if (strcmp(arr[i].name, name) == 0) {
-            kill(arr[i].pid, SIGKILL);
-            arr[i].running = 0;
-        }
-        fwrite(&arr[i], sizeof(Container), 1, f);
-    }
-
-    fclose(f);
-
-    printf("Stopped %s\n", name);
-}
-
-// supervisor loop
-void supervisor() {
-    printf("[engine] supervisor running...\n");
-    while (1) sleep(5);
-}
-
-// main
-int main(int argc, char *argv[]) {
-
-    if (argc < 2) {
-        printf("Usage:\n");
-        printf("./engine supervisor <rootfs>\n");
-        printf("./engine start <name> <rootfs> <cmd> [soft hard]\n");
-        printf("./engine ps\n");
-        printf("./engine logs <name>\n");
-        printf("./engine stop <name>\n");
-        return 1;
-    }
-
-    if (strcmp(argv[1], "supervisor") == 0) {
-        supervisor();
-    }
-
-    else if (strcmp(argv[1], "start") == 0 && argc >= 5) {
-        int soft = 0, hard = 0;
-
-        if (argc >= 7) {
-            soft = atoi(argv[5]);
-            hard = atoi(argv[6]);
-        }
-
-        start(argv[2], argv[3], argv[4], soft, hard);
-    }
-
-    else if (strcmp(argv[1], "ps") == 0) {
-        ps();
-    }
-
-    else if (strcmp(argv[1], "logs") == 0 && argc >= 3) {
-        logs(argv[2]);
-    }
-
-    else if (strcmp(argv[1], "stop") == 0 && argc >= 3) {
-        stop(argv[2]);
-    }
-
-    else {
-        printf("Invalid command\n");
-    }
-
+    printf("cpu_hog done duration=%u accumulator=%llu\n", duration, accumulator);
     return 0;
 }
