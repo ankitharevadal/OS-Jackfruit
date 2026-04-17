@@ -1,55 +1,50 @@
-#include <linux/module.h>
-#include <linux/kernel.h>
-#include <linux/fs.h>
-#include <linux/uaccess.h>
-#include "monitor_ioctl.h"
+/*
+ * cpu_hog.c - CPU-bound workload for scheduler experiments.
+ *
+ * Usage:
+ *   /cpu_hog [seconds]
+ *
+ * The program burns CPU and prints progress once per second so students
+ * can compare completion times and responsiveness under different
+ * priorities or CPU-affinity settings.
+ *
+ * If you copy this binary into an Alpine rootfs, make sure it is built in a
+ * format that can run there.
+ */
 
-#define DEVICE_NAME "container_monitor"
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
 
-static int major;
-
-static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+static unsigned int parse_seconds(const char *arg, unsigned int fallback)
 {
-    struct container_info info;
+    char *end = NULL;
+    unsigned long value = strtoul(arg, &end, 10);
 
-    if (copy_from_user(&info, (struct container_info *)arg, sizeof(info)))
-        return -EFAULT;
+    if (!arg || *arg == '\0' || (end && *end != '\0') || value == 0)
+        return fallback;
+    return (unsigned int)value;
+}
 
-    switch (cmd) {
-        case IOCTL_ADD_CONTAINER:
-            printk(KERN_INFO "Monitor: Add PID %d\n", info.pid);
-            break;
+int main(int argc, char *argv[])
+{
+    const unsigned int duration = (argc > 1) ? parse_seconds(argv[1], 10) : 10;
+    const time_t start = time(NULL);
+    time_t last_report = start;
+    volatile unsigned long long accumulator = 0;
 
-        case IOCTL_REMOVE_CONTAINER:
-            printk(KERN_INFO "Monitor: Remove PID %d\n", info.pid);
-            break;
+    while ((unsigned int)(time(NULL) - start) < duration) {
+        accumulator = accumulator * 1664525ULL + 1013904223ULL;
 
-        default:
-            return -EINVAL;
+        if (time(NULL) != last_report) {
+            last_report = time(NULL);
+            printf("cpu_hog alive elapsed=%ld accumulator=%llu\n",
+                   (long)(last_report - start),
+                   accumulator);
+            fflush(stdout);
+        }
     }
 
+    printf("cpu_hog done duration=%u accumulator=%llu\n", duration, accumulator);
     return 0;
 }
-
-static struct file_operations fops = {
-    .owner = THIS_MODULE,
-    .unlocked_ioctl = device_ioctl,
-};
-
-static int __init monitor_init(void)
-{
-    major = register_chrdev(0, DEVICE_NAME, &fops);
-    printk(KERN_INFO "Monitor loaded\n");
-    return 0;
-}
-
-static void __exit monitor_exit(void)
-{
-    unregister_chrdev(major, DEVICE_NAME);
-    printk(KERN_INFO "Monitor unloaded\n");
-}
-
-module_init(monitor_init);
-module_exit(monitor_exit);
-
-MODULE_LICENSE("GPL");
