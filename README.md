@@ -1,4 +1,4 @@
-<img width="1280" height="800" alt="WhatsApp Image 2026-04-17 at 11 48 02" src="https://github.com/user-attachments/assets/303ef5b3-7372-4f44-9bbe-905f33ce92a7" /># Multi-Container Runtime with Kernel-Level Monitoring
+Container Runtime with Kernel-Level Monitoring
 
 ## 👥 Team Members
 
